@@ -150,6 +150,8 @@ Resources:
       TargetFunctionArn: !Ref AuthFunction
       AuthType: NONE
 
+  # 認証なしの Function URL を公開するには、InvokeFunctionUrl と
+  # 「Function URL 経由に限った InvokeFunction」の2つの許可が必要
   AuthFunctionUrlPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -157,6 +159,14 @@ Resources:
       Action: lambda:InvokeFunctionUrl
       Principal: "*"
       FunctionUrlAuthType: NONE
+
+  AuthFunctionInvokeViaUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AuthFunction
+      Action: lambda:InvokeFunction
+      Principal: "*"
+      InvokedViaFunctionUrl: true
 
 Outputs:
   SiteBucketName:
