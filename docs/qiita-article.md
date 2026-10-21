@@ -58,9 +58,65 @@ flowchart LR
   SES -->|認証コード| Mail[メールボックス]
 ```
 
+まずは通信の流れだけを示します。リソース単位の構成図は、このあとの「インフラ構成図」に載せています。
+
 ブラウザがアクセスするのは CloudFront だけです。`/mfa-sample/api/*` は Lambda の Function URL に、`/mfa-sample/*` は S3 に振り分けます。画面と API が同じオリジンになるので、CORS の設定がいりません。
 
 CloudFront は新しく作らず、**既存のディストリビューションに相乗り**させました。理由は「ハマったところ」に書きます。
+
+## インフラ構成図
+
+```mermaid
+flowchart LR
+  user["ブラウザ"]
+  mail["メールボックス"]
+
+  subgraph edge["AWS グローバル（既存）"]
+    waf["AWS WAF<br/>既存の Web ACL"]
+    cf["CloudFront<br/>既存のディストリビューション"]
+  end
+
+  subgraph region["AWS 東京リージョン ap-northeast-1"]
+    other["既存アプリのオリジン"]
+    ses["Amazon SES<br/>検証済みの送信元"]
+
+    subgraph stack["CloudFormation スタック simple-mfa-sample"]
+      site[("S3 SiteBucket<br/>React のビルド成果物")]
+      url["Lambda Function URL<br/>AuthType NONE"]
+      fn["Lambda 関数<br/>Node.js 22 / arm64 / 256MB"]
+      data[("S3 DataBucket<br/>db.json")]
+      role["IAM ロール<br/>db.json と SES 送信だけ許可"]
+      logs["CloudWatch Logs<br/>保持7日"]
+    end
+  end
+
+  user -->|HTTPS| waf
+  waf --> cf
+  cf -->|"/mfa-sample/*<br/>OAC で署名"| site
+  cf -->|"/mfa-sample/api/*<br/>キャッシュなし"| url
+  cf -->|それ以外| other
+  url --> fn
+  fn -->|"GetObject / PutObject<br/>If-Match で楽観ロック"| data
+  fn -->|SendEmail| ses
+  ses -->|認証コード| mail
+  fn -.->|ログ出力| logs
+  role -.->|実行権限| fn
+```
+
+ブラウザからの通信は、既存の WAF と CloudFront を通ります。CloudFront は `/mfa-sample/*` をこのサンプルの S3（SiteBucket）へ、`/mfa-sample/api/*` を Lambda の Function URL へ振り分けます。それ以外のパスは既存アプリのままです。Lambda は DataBucket の `db.json` を読み書きし、SES で認証コードのメールを送ります。
+
+作るものと既存のものは、次のように分かれます。
+
+| リソース | 作り方 | 役割 |
+| --- | --- | --- |
+| S3 SiteBucket | CloudFormation | React のビルド成果物。非公開で、相乗り先の CloudFront からだけ読める |
+| S3 DataBucket | CloudFormation | `db.json`（ユーザー、失敗回数、認証コードのハッシュ）。Lambda からだけ読み書きする |
+| Lambda 関数・Function URL | CloudFormation（コードはデプロイ時に差し替え） | ログイン、認証コードの検証・再送、ユーザー登録 |
+| IAM ロール | CloudFormation | `db.json` の読み書き、SES での送信（送信元アドレスを限定）、ログ出力だけを許可 |
+| CloudWatch Logs | CloudFormation | Lambda のログ。7日で消える |
+| CloudFront のオリジン2つ・振る舞い2つ | デプロイスクリプト（`update-distribution`） | 既存のディストリビューションに足す。片付け時は自分の分だけ外す |
+| CloudFront・WAF・OAC | 既存のものを使う | OAC は S3 用の汎用設定なので、そのまま使い回す |
+| SES の送信元 | 既存のものを使う | 検証済みのメールアドレス |
 
 ## 費用
 
@@ -281,6 +337,8 @@ npm run seed           # 初期ユーザーを登録
 
 - **Windows で AWS CLI がテンプレートを読めない**: テンプレートに日本語コメントを書いたら、「text contents could not be decoded」と言われました。環境変数 `AWS_CLI_FILE_ENCODING=UTF-8` を付けて実行すると読めます。
 - **書き込みに MFA 必須のアカウント**: IAM ポリシーで「MFA なしの操作を拒否」しているアカウントだと、CloudFormation の途中で `AccessDenied` になります。最初は CloudFront の OAC 作成で止まりました。MFA を作るサンプルのデプロイで MFA に止められるのは、ちょっと笑いました。しかも効き方がまばらで、S3 バケットは作れたのに、ロググループは作れても消せない、という状態になりました。`sts get-session-token` で MFA 付きの一時認証情報を取ってから実行するスクリプト（`scripts/with-mfa.mjs`）を用意しています。
+- **Function URL が 403 Forbidden を返す**: 認証なし（`AuthType: NONE`）の Function URL は、`lambda:InvokeFunctionUrl` の許可だけでは呼べませんでした。「Function URL 経由に限った `lambda:InvokeFunction`」の許可も要ります。CloudFormation では `AWS::Lambda::Permission` に `InvokedViaFunctionUrl: true` を付けて追加します。
+- **一時認証情報に切り替えたら証明書エラー**: 社内プロキシ用の CA 証明書を、AWS CLI のプロファイル（`ca_bundle`）に設定していました。MFA 付きの一時認証情報を環境変数で渡すと `--profile` を付けなくなるので、この設定も外れて `certificate verify failed` になります。`AWS_CA_BUNDLE` と、Node の fetch 用の `NODE_EXTRA_CA_CERTS` に同じ証明書を渡すようにしました。
 - **CloudFront を新しく作らない**: 上の件もあって、CloudFront は既存のディストリビューションに相乗りさせる方式にしました（実装のポイント 6）。
 - **SES のサンドボックス**: サンドボックスのあいだは、送信先のメールアドレスも SES で検証しておく必要があります。
 
