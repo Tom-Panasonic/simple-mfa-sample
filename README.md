@@ -2,8 +2,8 @@
 
 ID・パスワードのあとに、メールで届く6桁の認証コード（メールOTP）を入力させる、超シンプルな多要素認証（MFA）のサンプルです。
 
-- 画面は React（Vite）。S3 に置いて CloudFront で配信します
-- 認証処理は Lambda 1本。Function URL を CloudFront の `/api/*` から呼びます
+- 画面は React（Vite）。S3 に置いて、**既存の CloudFront に相乗り**して配信します
+- 認証処理は Lambda 1本。Function URL を CloudFront の `<BASE_PATH>/api/*` から呼びます
 - DB は使わず、S3 上の JSON ファイル1つにデータを持ちます
 - メールは Amazon SES で送ります
 - サンプル規模なら、費用はほぼ無料枠に収まります
@@ -24,15 +24,18 @@ ID・パスワードのあとに、メールで届く6桁の認証コード（�
 
 ```mermaid
 flowchart LR
-  Browser[ブラウザ] -->|HTTPS| CF[CloudFront]
-  CF -->|"/*"| S3Site[(S3: React)]
-  CF -->|"/api/*"| Lambda[Lambda Function URL]
+  Browser[ブラウザ] -->|HTTPS| CF[既存の CloudFront]
+  CF -->|"/mfa-sample/*"| S3Site[(S3: React)]
+  CF -->|"/mfa-sample/api/*"| Lambda[Lambda Function URL]
+  CF -->|それ以外| Other[既存のアプリ]
   Lambda --> S3Data[(S3: db.json)]
   Lambda --> SES[Amazon SES]
   SES -->|認証コード| Mail[メールボックス]
 ```
 
-ブラウザは CloudFront にだけアクセスします。画面は S3 から、API は Lambda から返ります。Lambda は S3 上の `db.json` を読み書きし、SES で認証コードを送ります。
+ブラウザは既存の CloudFront にアクセスします。`/mfa-sample/api/*` は Lambda、`/mfa-sample/*` は S3 に振り分け、それ以外は既存のアプリのままです。Lambda は S3 上の `db.json` を読み書きし、SES で認証コードを送ります。
+
+CloudFront を新しく作らないのは、ディストリビューションの作成が制限されたアカウントでも動かせるようにするためです。CloudFront を新しく作れる環境なら、このサンプル専用のディストリビューションを用意して `DISTRIBUTION_ID` に指定しても同じように動きます。
 
 ## ディレクトリ
 
@@ -40,22 +43,23 @@ flowchart LR
 | --- | --- |
 | `frontend/` | React の画面（ログイン、認証コード入力、ログイン後、ユーザー登録） |
 | `backend/` | Lambda の処理。`src/authService.ts` が認証の本体、`src/policy.ts` に回数・時間の決めごと |
-| `infra/template.yaml` | CloudFormation テンプレート（S3、CloudFront、Lambda、IAM） |
-| `scripts/` | デプロイ・初期ユーザー登録・削除のスクリプト |
+| `infra/template.yaml` | CloudFormation テンプレート（S3、Lambda、IAM） |
+| `scripts/distribution.mjs` | 既存の CloudFront に、このサンプル用のオリジンと振る舞いを足す・外す |
+| `scripts/` | そのほか、デプロイ・初期ユーザー登録・削除のスクリプト |
 
 ## 使い方
 
-前提: Node.js 20 以上、AWS CLI v2、SES で検証済みの送信元メールアドレス。
+前提: Node.js 20 以上、AWS CLI v2、SES で検証済みの送信元メールアドレス、相乗りする CloudFront と、その S3 オリジン用の OAC（署名 `always` / `sigv4`）。
 
 ```bash
 npm install
 cp .env.example .env   # 値を埋める
 npm test               # 単体テスト
-npm run deploy         # テスト → ビルド → CloudFormation → Lambda 差し替え → S3 配置
+npm run deploy         # テスト → ビルド → CloudFormation → Lambda 差し替え → S3 配置 → CloudFront に相乗り
 npm run seed           # .env の SEED_* を初期ユーザーとして登録
 ```
 
-デプロイが終わると、`deploy-output.json` に `SiteUrl` が出ます。そこを開くとログイン画面です。ユーザー登録画面は `SiteUrl/#/admin` です。
+デプロイが終わると、`deploy-output.json` に `SiteUrl`（`https://<CloudFront>/mfa-sample/index.html`）が出ます。ユーザー登録画面は `SiteUrl#/admin` です。
 
 書き込みに MFA が必須の AWS アカウントでは、`.env` に `MFA_SERIAL` を設定して次のように実行します。
 
@@ -63,7 +67,14 @@ npm run seed           # .env の SEED_* を初期ユーザーとして登録
 node scripts/with-mfa.mjs <認証アプリの6桁> deploy seed
 ```
 
-片付けは `npm run destroy` です（MFA 必須なら `node scripts/with-mfa.mjs <6桁> destroy`）。
+片付けは `npm run destroy` です。既存の CloudFront からは、このサンプルのオリジンと振る舞いだけを外します（MFA 必須なら `node scripts/with-mfa.mjs <6桁> destroy`）。
+
+## 相乗りするときの注意
+
+- 既存のオリジン・振る舞い・そのほかの設定には触れません。`<STACK_NAME>-site` / `<STACK_NAME>-api` のオリジンと、`<BASE_PATH>/*` / `<BASE_PATH>/api/*` の振る舞いだけを入れ替えます。
+- 既存のディストリビューションの `DefaultRootObject` は使えないため、URL は `index.html` まで指定します。
+- 既存のディストリビューションに、エラーコードを差し替える設定（例: 403 を別アプリの `index.html` に置き換える）があると、API のエラー応答も差し替えられます。このサンプルの API は 403 を返さないようにしています。
+- 既存のディストリビューションに WAF が付いていれば、このサンプルにも同じ WAF が効きます。
 
 ## 注意
 

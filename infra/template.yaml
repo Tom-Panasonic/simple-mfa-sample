@@ -1,5 +1,9 @@
-AWSTemplateFormatVersion: '2010-09-09'
-Description: Simple email OTP MFA sample (S3 + CloudFront + Lambda Function URL + SES)
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Simple email OTP MFA sample (S3 + existing CloudFront + Lambda Function URL + SES)
+
+# CloudFront は新しく作らず、既存のディストリビューションに /<BasePath>/* の振る舞いを足して使う。
+# 振る舞いの追加・削除は scripts/distribution.mjs が行う（既存のディストリビューションは
+# このスタックの管理外のため、CloudFormation では扱えない）。
 
 Parameters:
   MailFrom:
@@ -15,9 +19,16 @@ Parameters:
     NoEcho: true
     MinLength: 32
     Description: セッショントークン署名と認証コードのハッシュに使う秘密値
+  DistributionId:
+    Type: String
+    Description: 相乗りする既存の CloudFront ディストリビューションの ID
+  BasePath:
+    Type: String
+    AllowedPattern: "^/[a-z0-9-]+$"
+    Description: このサンプルを置くパス（例 /mfa-sample）
 
 Resources:
-  # React のビルド成果物を置くバケット（非公開。CloudFront からだけ読める）
+  # React のビルド成果物を置くバケット（非公開。既存の CloudFront からだけ読める）
   SiteBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -33,6 +44,22 @@ Resources:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
+
+  SiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SiteBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${SiteBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${DistributionId}"
 
   # DB の代わりに db.json を1つ置くバケット（非公開。Lambda からだけ読み書きする）
   DataBucket:
@@ -60,7 +87,7 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           - Effect: Allow
             Principal:
@@ -69,7 +96,7 @@ Resources:
       Policies:
         - PolicyName: app
           PolicyDocument:
-            Version: '2012-10-17'
+            Version: "2012-10-17"
             Statement:
               - Effect: Allow
                 Action:
@@ -80,14 +107,14 @@ Resources:
                 Action:
                   - s3:GetObject
                   - s3:PutObject
-                Resource: !Sub '${DataBucket.Arn}/db.json'
+                Resource: !Sub "${DataBucket.Arn}/db.json"
               # ListBucket があると、db.json が無いときに AccessDenied ではなく NoSuchKey になる
               - Effect: Allow
                 Action: s3:ListBucket
                 Resource: !GetAtt DataBucket.Arn
               - Effect: Allow
                 Action: ses:SendEmail
-                Resource: '*'
+                Resource: "*"
                 Condition:
                   StringEquals:
                     ses:FromAddress: !Ref MailFrom
@@ -111,6 +138,7 @@ Resources:
           MAIL_FROM: !Ref MailFrom
           ADMIN_KEY: !Ref AdminKey
           APP_SECRET: !Ref AppSecret
+          BASE_PATH: !Ref BasePath
       # 本物のコードは deploy スクリプトが update-function-code で差し替える
       Code:
         ZipFile: |
@@ -127,83 +155,14 @@ Resources:
     Properties:
       FunctionName: !Ref AuthFunction
       Action: lambda:InvokeFunctionUrl
-      Principal: '*'
+      Principal: "*"
       FunctionUrlAuthType: NONE
 
-  SiteOriginAccessControl:
-    Type: AWS::CloudFront::OriginAccessControl
-    Properties:
-      OriginAccessControlConfig:
-        Name: !Sub '${AWS::StackName}-site'
-        OriginAccessControlOriginType: s3
-        SigningBehavior: always
-        SigningProtocol: sigv4
-
-  Distribution:
-    Type: AWS::CloudFront::Distribution
-    Properties:
-      DistributionConfig:
-        Comment: !Sub '${AWS::StackName}'
-        Enabled: true
-        DefaultRootObject: index.html
-        HttpVersion: http2
-        # 日本を含む価格クラス（全エッジより安い）
-        PriceClass: PriceClass_200
-        Origins:
-          - Id: site
-            DomainName: !GetAtt SiteBucket.RegionalDomainName
-            OriginAccessControlId: !GetAtt SiteOriginAccessControl.Id
-            S3OriginConfig:
-              OriginAccessIdentity: ''
-          - Id: api
-            # https://xxxx.lambda-url.ap-northeast-1.on.aws/ からホスト名だけを取り出す
-            DomainName: !Select [2, !Split ['/', !GetAtt AuthFunctionUrl.FunctionUrl]]
-            CustomOriginConfig:
-              OriginProtocolPolicy: https-only
-              OriginSSLProtocols:
-                - TLSv1.2
-        DefaultCacheBehavior:
-          TargetOriginId: site
-          ViewerProtocolPolicy: redirect-to-https
-          AllowedMethods: [GET, HEAD]
-          Compress: true
-          # Managed-CachingOptimized
-          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
-          # Managed-SecurityHeadersPolicy
-          ResponseHeadersPolicyId: 67f7725c-6f97-4210-82d7-5512b31e9d03
-        CacheBehaviors:
-          - PathPattern: /api/*
-            TargetOriginId: api
-            ViewerProtocolPolicy: https-only
-            AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
-            # Managed-CachingDisabled
-            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
-            # Managed-AllViewerExceptHostHeader（Host を送ると Function URL が受け付けないため）
-            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
-
-  SiteBucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    Properties:
-      Bucket: !Ref SiteBucket
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: cloudfront.amazonaws.com
-            Action: s3:GetObject
-            Resource: !Sub '${SiteBucket.Arn}/*'
-            Condition:
-              StringEquals:
-                AWS:SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${Distribution}'
-
 Outputs:
-  SiteUrl:
-    Value: !Sub 'https://${Distribution.DomainName}'
-  DistributionId:
-    Value: !Ref Distribution
   SiteBucketName:
     Value: !Ref SiteBucket
+  SiteBucketDomainName:
+    Value: !GetAtt SiteBucket.RegionalDomainName
   DataBucketName:
     Value: !Ref DataBucket
   FunctionName:

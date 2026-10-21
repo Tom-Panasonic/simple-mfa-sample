@@ -162,8 +162,8 @@ describe('AuthService', () => {
   });
 
   it('管理用キーが違うと登録・一覧はできない', async () => {
-    assert.equal((await service.upsertUser('x'.repeat(40), USER)).status, 403);
-    assert.equal((await service.listUsers(undefined)).status, 403);
+    assert.equal((await service.upsertUser('x'.repeat(40), USER)).body.error, 'ADMIN_KEY_INVALID');
+    assert.equal((await service.listUsers(undefined)).body.error, 'ADMIN_KEY_INVALID');
   });
 
   it('パスワードの形式チェック', async () => {

@@ -59,8 +59,12 @@ function parseBody(event: FunctionUrlEvent): unknown {
 
 export async function handler(event: FunctionUrlEvent): Promise<FunctionUrlResult> {
   const method = event.requestContext.http.method;
-  // CloudFront の /api/* から来るので、先頭の /api を外してルーティングする
-  const path = event.rawPath.replace(/^\/api/, '');
+  // CloudFront の <BASE_PATH>/api/* から来るので、先頭の <BASE_PATH>/api を外してルーティングする
+  const apiPrefix = `${requiredEnv('BASE_PATH')}/api`;
+  if (!event.rawPath.startsWith(`${apiPrefix}/`)) {
+    return toResult({ status: 404, body: { error: 'NOT_FOUND', message: 'Not Found' } });
+  }
+  const path = event.rawPath.slice(apiPrefix.length);
   const route = `${method} ${path}`;
 
   let body: unknown;

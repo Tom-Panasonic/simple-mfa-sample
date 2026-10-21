@@ -5,6 +5,19 @@ import { resolve } from 'node:path';
 
 export const ROOT = resolve(import.meta.dirname, '..');
 
+/** deploy / destroy に必要な .env のキー */
+export const DEPLOY_KEYS = [
+  'AWS_PROFILE',
+  'AWS_REGION',
+  'STACK_NAME',
+  'MAIL_FROM',
+  'ADMIN_KEY',
+  'APP_SECRET',
+  'DISTRIBUTION_ID',
+  'ORIGIN_ACCESS_CONTROL_ID',
+  'BASE_PATH',
+];
+
 /** .env を読み込む。未設定の必須キーがあれば止める */
 export function loadEnv(requiredKeys) {
   const path = resolve(ROOT, '.env');

@@ -14,6 +14,8 @@ const fail = (status: number, error: string, message: string, extra: Record<stri
 });
 
 const LOCKED = fail(423, 'LOCKED', 'アカウントがロックされています。管理者に連絡してください。');
+// 403 は相乗り先の CloudFront がエラーページ（別アプリの index.html）に差し替えるため、401 で返す
+const ADMIN_KEY_INVALID = fail(401, 'ADMIN_KEY_INVALID', '管理用キーが正しくありません。');
 const CHALLENGE_INVALID = fail(401, 'CHALLENGE_INVALID', '認証コードの有効期限が切れたか、無効になりました。ログインからやり直してください。');
 
 function failedWithRemaining(message: string, remaining: number): ApiResponse {
@@ -233,7 +235,7 @@ export class AuthService {
   /** 管理: ユーザーの登録・更新。更新するとロックも解除される */
   async upsertUser(adminKey: string | undefined, body: unknown): Promise<ApiResponse> {
     if (!this.isAdmin(adminKey)) {
-      return fail(403, 'FORBIDDEN', '管理用キーが正しくありません。');
+      return ADMIN_KEY_INVALID;
     }
     const parsed = parseUser(body);
     if (!parsed.ok) {
@@ -262,7 +264,7 @@ export class AuthService {
   /** 管理: ユーザー一覧（ロック状態の確認用） */
   async listUsers(adminKey: string | undefined): Promise<ApiResponse> {
     if (!this.isAdmin(adminKey)) {
-      return fail(403, 'FORBIDDEN', '管理用キーが正しくありません。');
+      return ADMIN_KEY_INVALID;
     }
     const db = await this.store.read();
     const users = Object.entries(db.users)

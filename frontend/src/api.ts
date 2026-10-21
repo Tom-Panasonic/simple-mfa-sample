@@ -15,7 +15,8 @@ export type AdminUser = { loginId: string; mfaEmail: string; failureCount: numbe
 
 async function request<T>(method: string, path: string, options: { body?: unknown; headers?: Record<string, string> } = {}): Promise<ApiResult<T>> {
   try {
-    const response = await fetch(`/api${path}`, {
+    // BASE_URL は vite の base（例 /mfa-sample/）。API は その下の api/ にある
+    const response = await fetch(`${import.meta.env.BASE_URL}api${path}`, {
       method,
       headers: { 'content-type': 'application/json', ...options.headers },
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
