@@ -5,7 +5,6 @@ import type { Mailer } from '../src/mailer';
 import { POLICY } from '../src/policy';
 import { MemoryDbStore } from '../src/store';
 
-const ADMIN_KEY = 'a'.repeat(40);
 const APP_SECRET = 'b'.repeat(40);
 const USER = { loginId: 'user@example.com', password: 'Passw0rdX', mfaEmail: 'User@Example.com' };
 
@@ -34,8 +33,8 @@ describe('AuthService', () => {
   beforeEach(async () => {
     now = Date.UTC(2026, 0, 1);
     mailer = new FakeMailer();
-    service = new AuthService(new MemoryDbStore(), mailer, APP_SECRET, ADMIN_KEY, () => now);
-    assert.equal((await service.upsertUser(ADMIN_KEY, USER)).status, 200);
+    service = new AuthService(new MemoryDbStore(), mailer, APP_SECRET, () => now);
+    assert.equal((await service.upsertUser(USER)).status, 200);
   });
 
   const login = async (password = USER.password) => service.login({ loginId: USER.loginId, password });
@@ -148,7 +147,7 @@ describe('AuthService', () => {
   });
 
   it('MFAメールアドレスは大文字・小文字を区別せずシステム全体で一意', async () => {
-    const res = await service.upsertUser(ADMIN_KEY, { loginId: 'other-user', password: 'Passw0rdY', mfaEmail: 'USER@example.com' });
+    const res = await service.upsertUser({ loginId: 'other-user', password: 'Passw0rdY', mfaEmail: 'USER@example.com' });
     assert.equal(res.status, 409);
   });
 
@@ -157,17 +156,23 @@ describe('AuthService', () => {
       await login('WrongPass1');
     }
     assert.equal((await login()).status, 423);
-    await service.upsertUser(ADMIN_KEY, USER);
+    await service.upsertUser(USER);
     assert.equal((await login()).status, 200);
   });
 
-  it('管理用キーが違うと登録・一覧はできない', async () => {
-    assert.equal((await service.upsertUser('x'.repeat(40), USER)).body.error, 'ADMIN_KEY_INVALID');
-    assert.equal((await service.listUsers(undefined)).body.error, 'ADMIN_KEY_INVALID');
+  it('一覧では失敗回数とロック状態が見える', async () => {
+    for (let i = 0; i < POLICY.maxFailures; i++) {
+      await login('WrongPass1');
+    }
+    const users = (await service.listUsers()).body.users as { loginId: string; failureCount: number; locked: boolean }[];
+    assert.deepEqual(
+      users.map(u => [u.loginId, u.failureCount, u.locked]),
+      [[USER.loginId, POLICY.maxFailures, true]],
+    );
   });
 
   it('パスワードの形式チェック', async () => {
-    assert.equal((await service.upsertUser(ADMIN_KEY, { ...USER, password: 'short1A' })).status, 400);
+    assert.equal((await service.upsertUser({ ...USER, password: 'short1A' })).status, 400);
   });
 
   it('改ざん・期限切れのトークンは拒否する', async () => {

@@ -9,11 +9,6 @@ Parameters:
   MailFrom:
     Type: String
     Description: SES で検証済みの送信元メールアドレス
-  AdminKey:
-    Type: String
-    NoEcho: true
-    MinLength: 32
-    Description: 登録画面で使う管理用キー
   AppSecret:
     Type: String
     NoEcho: true
@@ -136,7 +131,6 @@ Resources:
         Variables:
           DATA_BUCKET: !Ref DataBucket
           MAIL_FROM: !Ref MailFrom
-          ADMIN_KEY: !Ref AdminKey
           APP_SECRET: !Ref AppSecret
           BASE_PATH: !Ref BasePath
       # 本物のコードは deploy スクリプトが update-function-code で差し替える

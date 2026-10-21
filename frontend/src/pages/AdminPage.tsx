@@ -1,9 +1,8 @@
 import { type FormEvent, useState } from 'react';
 import { api, type AdminUser } from '../api';
 
-/** ログインID・パスワード・MFAメールアドレスの登録画面。管理用キーを知っている人だけが使える */
+/** ログインID・パスワード・MFAメールアドレスの登録画面（サンプルのため誰でも使える） */
 export function AdminPage() {
-  const [adminKey, setAdminKey] = useState('');
   const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
   const [mfaEmail, setMfaEmail] = useState('');
@@ -14,7 +13,7 @@ export function AdminPage() {
 
   const loadUsers = async () => {
     setError(null);
-    const result = await api.listUsers(adminKey);
+    const result = await api.listUsers();
     if (result.ok) {
       setUsers(result.data.users);
     } else {
@@ -28,7 +27,7 @@ export function AdminPage() {
     setSubmitting(true);
     setError(null);
     setInfo(null);
-    const result = await api.saveUser(adminKey, { loginId, password, mfaEmail });
+    const result = await api.saveUser({ loginId, password, mfaEmail });
     setSubmitting(false);
     if (result.ok) {
       setInfo(result.data.created ? `${result.data.loginId} を登録しました。` : `${result.data.loginId} を更新しました（ロックも解除しました）。`);
@@ -44,8 +43,6 @@ export function AdminPage() {
       <form className="card" onSubmit={submit}>
         <h1>ユーザー登録</h1>
         <p className="hint">同じログインIDで登録すると更新になり、ロックも解除されます。</p>
-        <label htmlFor="adminKey">管理用キー</label>
-        <input id="adminKey" type="password" value={adminKey} onChange={e => setAdminKey(e.target.value)} autoComplete="off" required />
         <label htmlFor="newLoginId">ログインID</label>
         <input id="newLoginId" value={loginId} onChange={e => setLoginId(e.target.value)} autoComplete="off" required />
         <label htmlFor="newPassword">パスワード（8文字以上、英大文字・英小文字・数字を含む）</label>
@@ -65,7 +62,7 @@ export function AdminPage() {
         <button type="submit" disabled={submitting}>
           {submitting ? '保存中…' : '登録・更新'}
         </button>
-        <button type="button" className="secondary" onClick={loadUsers} disabled={adminKey === ''}>
+        <button type="button" className="secondary" onClick={loadUsers}>
           登録済みユーザーを表示
         </button>
       </form>

@@ -33,7 +33,7 @@ export const api = {
   verify: (challengeId: string, code: string) => request<Session>('POST', '/mfa/verify', { body: { challengeId, code } }),
   resend: (challengeId: string) => request<ResendInfo>('POST', '/mfa/resend', { body: { challengeId } }),
   me: (token: string) => request<Me>('GET', '/me', { headers: { 'x-session-token': token } }),
-  listUsers: (adminKey: string) => request<{ users: AdminUser[] }>('GET', '/admin/users', { headers: { 'x-admin-key': adminKey } }),
-  saveUser: (adminKey: string, user: { loginId: string; password: string; mfaEmail: string }) =>
-    request<{ loginId: string; created: boolean }>('PUT', '/admin/users', { body: user, headers: { 'x-admin-key': adminKey } }),
+  listUsers: () => request<{ users: AdminUser[] }>('GET', '/admin/users'),
+  saveUser: (user: { loginId: string; password: string; mfaEmail: string }) =>
+    request<{ loginId: string; created: boolean }>('PUT', '/admin/users', { body: user }),
 };

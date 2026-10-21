@@ -31,7 +31,7 @@ https://github.com/Tom-Panasonic/simple-mfa-sample
 | ログイン | ログインID・パスワードを入力 |
 | 認証コード入力 | メールで届いた6桁を入力。60秒ごとに再送できる |
 | ログイン後 | ログインIDとセッションの有効期限を表示 |
-| ユーザー登録 | ログインID・パスワード・MFAメールアドレスを登録（管理用キーが必要） |
+| ユーザー登録 | ログインID・パスワード・MFAメールアドレスを登録。登録済みユーザーの失敗回数・ロック状態も見られる |
 
 認証の決めごとは、次のとおりにしました。
 
@@ -324,7 +324,7 @@ aws(env, ['lambda', 'update-function-code', '--function-name', outputs.FunctionN
 git clone https://github.com/Tom-Panasonic/simple-mfa-sample.git
 cd simple-mfa-sample
 npm install
-cp .env.example .env   # 送信元メールアドレス、管理用キー、相乗りする CloudFront などを埋める
+cp .env.example .env   # 送信元メールアドレス、署名用の秘密値、相乗りする CloudFront などを埋める
 npm run deploy         # テスト → ビルド → CloudFormation → Lambda 差し替え → S3 配置 → CloudFront に相乗り
 npm run seed           # 初期ユーザーを登録
 ```
@@ -348,7 +348,8 @@ npm run seed           # 初期ユーザーを登録
 
 - Function URL は認証なし（`AuthType: NONE`）なので、CloudFront を通さずに直接呼べます。CloudFront の OAC で保護するか、API Gateway と WAF を使う
 - JSON ファイル1つは、ユーザー数やアクセスが増えると向かない。DynamoDB などに置き換える
-- 管理用キーや署名用の秘密値は、Lambda の環境変数ではなく Secrets Manager などで管理する
+- ユーザー登録・一覧の API に認可をかける。サンプルでは、URL に届く人なら誰でもユーザーの登録・上書き・一覧の閲覧ができる
+- 署名用の秘密値は、Lambda の環境変数ではなく Secrets Manager などで管理する
 - IP 単位のレート制限を入れる
 - メールOTP は SMS OTP や TOTP（認証アプリ）に比べると、メールアカウントが乗っ取られたときに弱い。要件によっては TOTP も選べるようにする
 

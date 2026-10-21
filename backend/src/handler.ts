@@ -35,7 +35,6 @@ function getService(): AuthService {
       new S3DbStore(new S3Client({}), requiredEnv('DATA_BUCKET')),
       new SesMailer(new SESv2Client({}), requiredEnv('MAIL_FROM')),
       requiredEnv('APP_SECRET'),
-      requiredEnv('ADMIN_KEY'),
     );
   }
   return service;
@@ -86,9 +85,9 @@ export async function handler(event: FunctionUrlEvent): Promise<FunctionUrlResul
       case 'GET /me':
         return toResult(auth.me(event.headers['x-session-token']));
       case 'GET /admin/users':
-        return toResult(await auth.listUsers(event.headers['x-admin-key']));
+        return toResult(await auth.listUsers());
       case 'PUT /admin/users':
-        return toResult(await auth.upsertUser(event.headers['x-admin-key'], body));
+        return toResult(await auth.upsertUser(body));
       default:
         return toResult({ status: 404, body: { error: 'NOT_FOUND', message: 'Not Found' } });
     }

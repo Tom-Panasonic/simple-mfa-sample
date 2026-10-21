@@ -34,7 +34,6 @@ aws(env, [
   `Project=${env.STACK_NAME}`,
   '--parameter-overrides',
   `MailFrom=${env.MAIL_FROM}`,
-  `AdminKey=${env.ADMIN_KEY}`,
   `AppSecret=${env.APP_SECRET}`,
   `DistributionId=${env.DISTRIBUTION_ID}`,
   `BasePath=${env.BASE_PATH}`,
